@@ -1,35 +1,32 @@
-# Builder image stage
-FROM elevacontainerregistry.azurecr.io/dotnet3 as builder
+# Builder image stage with node 12.8
+FROM elevacontainerregistry.azurecr.io/node as builder
+# Working directory for the app
 WORKDIR /app
-
-# copy csproj and restore as distinct layers
-COPY . ./
-RUN dotnet restore
-
-# build and publish output of the app in out dirs
-RUN dotnet publish --no-restore -c Release -o out
+# Copying the package json in order to avoid rerun package installation
+COPY package*.json ./
+# Install all dependencies for this project
+RUN npm install
+# Copy all contents of this app to the container in /appdoc
+COPY . .
+# Run build script found in package.json "build"
+RUN npm run build
 
 # Build runtime image
-FROM elevacontainerregistry.azurecr.io/aspnet3 as runtime
+FROM elevacontainerregistry.azurecr.io/node as runtime
+# Declaring name, version, commit and date
+ARG NAMET
+ARG VERSIONT
+ARG COMMITT
+ARG DATET
+ENV NAMET=$NAMET VERSIONT=$VERSIONT COMMITT=$COMMITT DATET=$DATET
+# Working directory for the app
 WORKDIR /app
+# Copy all files from build stage (only js sources needed in order to execute app)
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/build ./
 
-## Copy output dirs with all dlls and testscripts
-COPY --from=builder /app/*out* ./
-COPY unit.sh .
-COPY integration.sh .
-
-# SSH stage
-RUN apt-get update \
-        && apt-get install -y --no-install-recommends dialog \
-        && apt-get update \
-	&& apt-get install -y --no-install-recommends openssh-server \
-	&& echo "root:Docker!" | chpasswd 
-
-COPY sshd_config /etc/ssh/
-COPY init.sh /usr/local/bin/
-RUN chmod u+x /usr/local/bin/init.sh
-
-## Expose port of app and ssh port
+# Expose Ports HTTP
 EXPOSE 80 2222
 ## Initilize ssh and app
 CMD ["init.sh"]
